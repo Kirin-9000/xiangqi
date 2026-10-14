@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#211b16">
+<title>揭棋 · 单人双控</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- 顶栏 -->
+  <header class="topbar">
+    <div class="brand">揭棋</div>
+    <div class="turnbox" id="turnBox">
+      <span class="dot" id="turnDot"></span>
+      <span id="turnText">红方行棋</span>
+    </div>
+    <div class="chips">
+      <span class="chip" id="chipCheck" hidden>将军</span>
+      <span class="chip" id="chipDark">暗子 15 / 15</span>
+    </div>
+  </header>
+
+  <!-- 棋盘 -->
+  <main class="board-area" id="boardArea">
+    <div class="board" id="board">
+      <svg class="grid" id="grid" viewBox="0 0 920 1020" preserveAspectRatio="none"></svg>
+      <div class="layer" id="marksLayer"></div>
+      <div class="layer" id="piecesLayer"></div>
+    </div>
+  </main>
+
+  <!-- 底部按钮（手机） -->
+  <footer class="bottombar">
+    <button class="btn" data-act="new">新局</button>
+    <button class="btn" data-act="undo">撤销</button>
+    <button class="btn" data-act="flip">翻转</button>
+    <button class="btn" data-act="info">详情</button>
+    <button class="btn" data-act="menu">设置</button>
+  </footer>
+
+  <!-- 侧栏 / 手机抽屉 -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sheet-handle" id="sheetHandle"><span></span></div>
+
+    <section class="panel">
+      <h4>对局状态</h4>
+      <div class="kv"><span>行棋方</span><b id="sTurn">红方</b></div>
+      <div class="kv"><span>暗子剩余</span><b id="sDark">红 15 / 黑 15</b></div>
+      <div class="kv"><span>无吃子</span><b id="sNoCap">0 / 120 步</b></div>
+      <div class="kv"><span>局面重复</span><b id="sRep">1 / 5</b></div>
+      <div class="kv warn" id="sCheckRow" hidden><span>警告</span><b id="sCheck">—</b></div>
+    </section>
+
+    <section class="panel">
+      <h4>被吃棋子</h4>
+      <div class="cap-row"><span class="tag red">红</span><div class="caps" id="capRed"></div></div>
+      <div class="cap-row"><span class="tag black">黑</span><div class="caps" id="capBlack"></div></div>
+    </section>
+
+    <section class="panel">
+      <h4>棋谱</h4>
+      <ol class="log" id="logList"></ol>
+    </section>
+
+    <div class="btnrow">
+      <button class="btn" data-act="new">新局</button>
+      <button class="btn" data-act="undo">撤销</button>
+      <button class="btn" data-act="flip">翻转</button>
+      <button class="btn" data-act="menu">设置</button>
+      <button class="btn" data-act="help">规则</button>
+      <button class="btn" data-act="resign">认输</button>
+    </div>
+  </aside>
+
+</div>
+
+<div class="sheet-backdrop" id="sheetBackdrop"></div>
+<div class="toast" id="toast"></div>
+<div class="modal" id="modal">
+  <div class="modal-card">
+    <h3 id="modalTitle"></h3>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-actions" id="modalActions"></div>
+  </div>
+</div>
+
+<script src="engine.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
