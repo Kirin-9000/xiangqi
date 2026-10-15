@@ -5,14 +5,16 @@
  *   row 0 = 黑方底线（棋盘顶部） ... row 9 = 红方底线（棋盘底部）
  *   col 0 = 棋盘左侧        ... col 8 = 棋盘右侧
  *
- * 规则要点（依据《象棋揭棋规则.txt》）：
- *   1. 帅/将固定在九宫原位且为明子，其余 15 子背面朝上随机落在己方半场原棋位
- *   2. 每回合二选一：翻开己方一枚暗子 / 移动己方一枚明子
- *   3. 士可出九宫、象可过河（其余走法不变）
- *   4. 明子吃暗子：暗子翻开后移除（吃前不知其为何子）
- *   5. 暗子不能主动移动，但可充当炮架、可作为被吃目标
- *   6. 可以吃自家暗子
- *   7. 将帅不可照面；被将军时必须应将（不能只翻子）
+ * 规则要点（依据《象棋揭棋规则.txt》 + 用户后续调整）：
+ *   1. 帅/将固定在九宫原位且为明子，其余 15 子背面朝上随机打乱落在己方半场原棋位
+ *   2. 每回合二选一：翻开己方一枚暗子 / 移动己方一枚棋子（明子或暗子都可以走）
+ *   3. 【卧底】暗子未翻开时，按“该棋位在常规象棋中的兵种”行走；
+ *      翻开后按自己真实的兵种行走（车直走、马走日、炮隔子打……）
+ *   4. 士可出九宫、象可过河（其余走法不变）；将帅不得出九宫随意行走；兵卒不可后退
+ *   5. 明子吃暗子：暗子翻开后移除（吃前不知其为何子）；暗子吃子后自己仍不翻开
+ *   6. 暗子可充当炮架；双方未翻开的暗子都可以“自残”（被己方吃掉）
+ *   7. 只能翻开当前位于己方界内的暗子
+ *   8. 将帅不可照面；被将军时必须应将（翻子不改变占位，无法解将）
  * ========================================================================== */
 (function (global) {
   'use strict';
@@ -28,22 +30,27 @@
   var COLOR_NAME = { r: '红方', b: '黑方' };
   var STEP_TYPES = { R: 1, C: 1, P: 1, K: 1 };   // 记谱时以“步数”表示进/退的兵种
 
-  // 每方除将帅外的 15 枚暗子构成
+  // 每方除将帅外的 15 枚暗子“真实身份”构成
   var DARK_KINDS = ['R', 'N', 'B', 'A', 'A', 'B', 'N', 'R', 'C', 'C', 'P', 'P', 'P', 'P', 'P'];
 
-  // 开局棋位：帅/将固定，其余 15 个位置随机放暗子
+  // 开局棋位：[行, 列, 该棋位在常规象棋中的兵种]
+  // 暗子未翻开时按第三项（卧底身份）行走，翻开后按真实身份行走
   var LAYOUT = {
     r: {
       king: [9, 4],
-      slots: [[9, 0], [9, 1], [9, 2], [9, 3], [9, 5], [9, 6], [9, 7], [9, 8],
-              [7, 1], [7, 7],
-              [6, 0], [6, 2], [6, 4], [6, 6], [6, 8]]
+      slots: [
+        [9, 0, 'R'], [9, 1, 'N'], [9, 2, 'B'], [9, 3, 'A'], [9, 5, 'A'], [9, 6, 'B'], [9, 7, 'N'], [9, 8, 'R'],
+        [7, 1, 'C'], [7, 7, 'C'],
+        [6, 0, 'P'], [6, 2, 'P'], [6, 4, 'P'], [6, 6, 'P'], [6, 8, 'P']
+      ]
     },
     b: {
       king: [0, 4],
-      slots: [[0, 0], [0, 1], [0, 2], [0, 3], [0, 5], [0, 6], [0, 7], [0, 8],
-              [2, 1], [2, 7],
-              [3, 0], [3, 2], [3, 4], [3, 6], [3, 8]]
+      slots: [
+        [0, 0, 'R'], [0, 1, 'N'], [0, 2, 'B'], [0, 3, 'A'], [0, 5, 'A'], [0, 6, 'B'], [0, 7, 'N'], [0, 8, 'R'],
+        [2, 1, 'C'], [2, 7, 'C'],
+        [3, 0, 'P'], [3, 2, 'P'], [3, 4, 'P'], [3, 6, 'P'], [3, 8, 'P']
+      ]
     }
   };
 
@@ -78,6 +85,12 @@
 
   /* ----------------------------- 棋盘查询 ----------------------------- */
 
+  // 【卧底】暗子未翻开时按棋位对应的常规兵种行走；翻开后按真实兵种行走
+  function effType(p) {
+    if (!p) return null;
+    return p.revealed ? p.type : (p.disguise || p.type);
+  }
+
   function findGeneral(board, color) {
     for (var r = 0; r < ROWS; r++) {
       for (var c = 0; c < COLS; c++) {
@@ -107,14 +120,15 @@
     return countBetween(board, a.r, a.c, b.r, b.c) === 0;
   }
 
-  // 某个明子是否攻击到目标格（目标格通常有子；炮按“隔一子吃子”判定）
+  // 某个棋子（含未翻开的暗子，按卧底身份）是否攻击到目标格
+  // 目标格通常有子；炮按“隔一子吃子”判定
   function pieceAttacks(board, fr, fc, tr, tc) {
     var p = board[fr][fc];
-    if (!p || !p.revealed) return false;      // 暗子不具备攻击力
+    if (!p) return false;
     if (fr === tr && fc === tc) return false;
     var dr = tr - fr, dc = tc - fc;
     var adr = Math.abs(dr), adc = Math.abs(dc);
-    switch (p.type) {
+    switch (effType(p)) {
       case 'R':
         if (dr !== 0 && dc !== 0) return false;
         return countBetween(board, fr, fc, tr, tc) === 0;
@@ -143,7 +157,7 @@
     for (var i = 0; i < ROWS; i++) {
       for (var j = 0; j < COLS; j++) {
         var p = board[i][j];
-        if (p && p.revealed && p.color === byColor && pieceAttacks(board, i, j, r, c)) return true;
+        if (p && p.color === byColor && pieceAttacks(board, i, j, r, c)) return true;
       }
     }
     return false;
@@ -164,10 +178,10 @@
     return !t.revealed;
   }
 
-  // 某一明子的全部“几何走法”（未过滤送将）
+  // 某枚棋子的全部“几何走法”（未过滤送将）；暗子按卧底身份走
   function rawMoves(board, r, c) {
     var p = board[r][c];
-    if (!p || !p.revealed) return [];
+    if (!p) return [];
     var out = [];
     var i, dr, dc, nr, nc, t;
 
@@ -177,7 +191,7 @@
       if (!t || canLand(p, t)) out.push({ r: nr, c: nc });
     }
 
-    switch (p.type) {
+    switch (effType(p)) {
       case 'K':
         for (i = 0; i < 4; i++) {
           nr = r + ORTHO[i][0]; nc = c + ORTHO[i][1];
@@ -288,7 +302,7 @@
     for (r = 0; r < ROWS; r++) {
       for (c = 0; c < COLS; c++) {
         p = board[r][c];
-        if (!p || !p.revealed || p.color !== color) continue;
+        if (!p || p.color !== color) continue;      // 暗子也能走（按卧底身份）
         ms = rawMoves(board, r, c);
         for (i = 0; i < ms.length; i++) {
           if (legalAfterMove(board, r, c, ms[i].r, ms[i].c, color)) {
@@ -296,7 +310,8 @@
               from: { r: r, c: c },
               to: { r: ms[i].r, c: ms[i].c },
               capture: board[ms[i].r][ms[i].c] || null,
-              selfDark: !!(board[ms[i].r][ms[i].c] && board[ms[i].r][ms[i].c].color === color)
+              selfDark: !!(board[ms[i].r][ms[i].c] && board[ms[i].r][ms[i].c].color === color),
+              dark: !p.revealed
             });
           }
         }
@@ -329,17 +344,19 @@
   }
 
   // 走子前的棋盘上生成记谱，如「车二平五」「前马退三」
+  // 暗子按卧底身份记谱（其卧底身份是公开信息）
   function notation(board, color, fr, fc, tr, tc) {
     var p = board[fr][fc];
-    if (!p || !p.revealed) return '';
-    var ch = CHAR[color][p.type];
+    if (!p) return '';
+    var et = effType(p);
+    var ch = CHAR[color][et];
     var name;
 
-    // 同一列有两个（含）以上同兵种明子时使用 前/中/后
+    // 同一列有两个（含）以上同兵种（按卧底/真实身份）的己方棋子时使用 前/中/后
     var rows = [];
     for (var r = 0; r < ROWS; r++) {
       var q = board[r][fc];
-      if (q && q.revealed && q.color === color && q.type === p.type) rows.push(r);
+      if (q && q.color === color && effType(q) === et) rows.push(r);
     }
     if (rows.length > 1) {
       rows.sort(function (a, b) { return color === RED ? a - b : b - a; });
@@ -356,7 +373,7 @@
     if (dr === 0) return name + '平' + fileLabel(color, tc);
     var isForward = color === RED ? dr < 0 : dr > 0;
     var act = isForward ? '进' : '退';
-    var num = STEP_TYPES[p.type] ? numLabel(color, Math.abs(dr)) : fileLabel(color, tc);
+    var num = STEP_TYPES[et] ? numLabel(color, Math.abs(dr)) : fileLabel(color, tc);
     return name + act + num;
   }
 
@@ -387,16 +404,20 @@
       for (c = 0; c < COLS; c++) board[r].push(null);
     }
     var seq = 0;
-    function mk(color, type, revealed) {
+    function mk(color, type, revealed, disguise) {
       seq += 1;
-      return { id: color + seq, color: color, type: type, revealed: revealed };
+      return {
+        id: color + seq, color: color, type: type,
+        disguise: disguise || type, revealed: revealed
+      };
     }
     [RED, BLACK].forEach(function (color) {
       var L = LAYOUT[color];
-      board[L.king[0]][L.king[1]] = mk(color, 'K', true);
+      board[L.king[0]][L.king[1]] = mk(color, 'K', true, 'K');
+      // 15 枚棋子的真实身份全部打乱，随机落到己方半场 15 个原棋位上
       var kinds = shuffle(DARK_KINDS.slice());
       L.slots.forEach(function (slot, i) {
-        board[slot[0]][slot[1]] = mk(color, kinds[i], false);
+        board[slot[0]][slot[1]] = mk(color, kinds[i], false, slot[2]);
       });
     });
 
@@ -450,13 +471,14 @@
     return rr === 0 && bb === 0;
   }
 
-  // 长捉：同一明子（兵/卒/将/士/象除外）连续追捉同一个敌子
+  // 长捉：同一棋子（兵/卒/将/士/象除外，按卧底或真实身份）连续追捉同一个敌子
   function updateChase(st, actor) {
     var reset = { pieceId: null, targetId: null, count: 0 };
     if (!actor || actor.kind !== 'move') { st.chaseStreak = reset; return; }
     var p = st.board[actor.to.r][actor.to.c];
-    if (!p || !p.revealed) { st.chaseStreak = reset; return; }
-    if (p.type === 'K' || p.type === 'P' || p.type === 'A' || p.type === 'B') {
+    if (!p) { st.chaseStreak = reset; return; }
+    var et = effType(p);
+    if (et === 'K' || et === 'P' || et === 'A' || et === 'B') {
       st.chaseStreak = reset; return;   // 这些子允许长捉
     }
     var targets = [];
@@ -542,7 +564,7 @@
     var p = st.board[r][c];
     if (!p || p.revealed) return { ok: false, msg: '请选择己方暗子' };
     if (p.color !== st.turn) return { ok: false, msg: '只能翻开自己的棋子' };
-    if (!ownHalf(p.color, r)) return { ok: false, msg: '只能翻开己方半场的暗子' };
+    if (!ownHalf(p.color, r)) return { ok: false, msg: '只能翻开位于己方界内的暗子' };
     if (isKingInCheck(st.board, st.turn) || generalsFacing(st.board)) {
       return { ok: false, msg: '被将军时不能翻子，必须先应将' };
     }
@@ -562,7 +584,6 @@
     if (!inBoard(fr, fc) || !inBoard(tr, tc)) return { ok: false, msg: '位置无效' };
     var p = st.board[fr][fc];
     if (!p) return { ok: false, msg: '该位置没有棋子' };
-    if (!p.revealed) return { ok: false, msg: '暗子不能主动移动，请先翻开' };
     if (p.color !== st.turn) return { ok: false, msg: '现在不是' + colorName(p.color) + '行棋' };
 
     var ok = false, ms = rawMoves(st.board, fr, fc);
@@ -581,10 +602,10 @@
     st.board[tr][tc] = p;
     st.board[fr][fc] = null;
 
-    var text = note;
+    var text = (p.revealed ? '' : '暗·') + note;
     if (target) {
       if (target.color === p.color) {
-        text += ' 吃自家暗子（揭开为' + CHAR[target.color][target.type] + '后移除）';
+        text += ' 自残（揭开为' + CHAR[target.color][target.type] + '后移除）';
       } else {
         text += ' 吃' + CHAR[target.color][target.type]
              + (target.revealed ? '' : '（暗子）');
@@ -620,7 +641,9 @@
   // 调试/测试用：由字符画构造局面
   //   大写 = 红方明子(如 R K P)，小写 = 黑方明子(如 r k p)
   //   x = 红方暗子, o = 黑方暗子, . = 空
-  function fromRows(rows, turn) {
+  // disguises: {"行,列": 'C'} 指定暗子的卧底身份（默认 'P'）
+  //            也可用 {"行,列": {d:'C', t:'R'}} 同时指定卧底身份与真实身份
+  function fromRows(rows, turn, disguises) {
     var board = [], seq = 0, r, c;
     for (r = 0; r < ROWS; r++) {
       board.push([]);
@@ -631,10 +654,19 @@
         var ch = rows[r][c];
         if (!ch || ch === '.') continue;
         seq++;
-        if (ch === 'x') board[r][c] = { id: 'r' + seq, color: RED, type: 'P', revealed: false };
-        else if (ch === 'o') board[r][c] = { id: 'b' + seq, color: BLACK, type: 'P', revealed: false };
-        else if (ch === ch.toUpperCase()) board[r][c] = { id: 'r' + seq, color: RED, type: ch, revealed: true };
-        else board[r][c] = { id: 'b' + seq, color: BLACK, type: ch.toUpperCase(), revealed: true };
+        if (ch === 'x' || ch === 'o') {
+          var spec = (disguises && disguises[r + ',' + c]) || 'P';
+          var dis = typeof spec === 'string' ? spec : spec.d;
+          var tru = typeof spec === 'string' ? 'P' : (spec.t || 'P');
+          board[r][c] = {
+            id: (ch === 'x' ? 'r' : 'b') + seq, color: ch === 'x' ? RED : BLACK,
+            type: tru, disguise: dis, revealed: false
+          };
+        } else if (ch === ch.toUpperCase()) {
+          board[r][c] = { id: 'r' + seq, color: RED, type: ch, disguise: ch, revealed: true };
+        } else {
+          board[r][c] = { id: 'b' + seq, color: BLACK, type: ch.toUpperCase(), disguise: ch.toUpperCase(), revealed: true };
+        }
       }
     }
     var st = {
@@ -655,6 +687,7 @@
     CHAR: CHAR, TYPE_NAME: TYPE_NAME, COLOR_NAME: COLOR_NAME,
     other: other, inBoard: inBoard, inPalace: inPalace, ownHalf: ownHalf,
     crossedRiver: crossedRiver, colorName: colorName, pieceName: pieceName,
+    effType: effType,
     createGame: createGame, legalActions: legalActions,
     doFlip: doFlip, doMove: doMove, undo: undo,
     findGeneral: findGeneral, isKingInCheck: isKingInCheck, generalsFacing: generalsFacing,

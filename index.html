@@ -20,6 +20,7 @@
       <span id="turnText">红方行棋</span>
     </div>
     <div class="chips">
+      <button class="pill" id="flipAction" hidden>翻开此暗子</button>
       <span class="chip" id="chipCheck" hidden>将军</span>
       <span class="chip" id="chipDark">暗子 15 / 15</span>
     </div>
@@ -38,7 +39,7 @@
   <footer class="bottombar">
     <button class="btn" data-act="new">新局</button>
     <button class="btn" data-act="undo">撤销</button>
-    <button class="btn" data-act="flip">翻转</button>
+    <button class="btn" data-act="flip">换向</button>
     <button class="btn" data-act="info">详情</button>
     <button class="btn" data-act="menu">设置</button>
   </footer>
@@ -70,7 +71,7 @@
     <div class="btnrow">
       <button class="btn" data-act="new">新局</button>
       <button class="btn" data-act="undo">撤销</button>
-      <button class="btn" data-act="flip">翻转</button>
+      <button class="btn" data-act="flip">换向</button>
       <button class="btn" data-act="menu">设置</button>
       <button class="btn" data-act="help">规则</button>
       <button class="btn" data-act="resign">认输</button>

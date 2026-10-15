@@ -106,6 +106,24 @@ body { overflow: hidden; }
   animation: pulse 1.1s infinite;
 }
 
+/* 顶栏上的动作按钮（选中暗子时出现） */
+.pill {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 999px;
+  color: #241d17;
+  background: linear-gradient(180deg, #e3b356, #bd8a2c);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, .45);
+  cursor: pointer;
+  white-space: nowrap;
+  animation: pop .18s ease-out;
+}
+.pill:active { transform: scale(.95); }
+@keyframes pop { from { transform: scale(.82); opacity: 0; } }
+
 @keyframes pulse { 50% { opacity: .45; } }
 
 /* 棋盘区 */
@@ -193,10 +211,25 @@ body { overflow: hidden; }
   border: 2px solid rgba(255, 255, 255, .22);
   box-shadow: 0 2px 4px rgba(0, 0, 0, .4), inset 0 0 0 2px rgba(0, 0, 0, .2);
 }
+/* 暗子背面：显示它的「卧底身份」——按该棋位常规象棋兵种行走 */
+.piece .back .chb {
+  position: relative;
+  z-index: 2;
+  font-family: "KaiTi", "STKaiti", "Kaiti SC", "楷体", "Songti SC", serif;
+  font-size: var(--pc-font, 26px);
+  line-height: 1;
+  font-weight: 700;
+  color: rgba(255, 255, 255, .93);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .55);
+}
+
 .piece .back::after {
   content: "";
-  width: 46%;
-  aspect-ratio: 1;
+  position: absolute;
+  left: 14%;
+  top: 14%;
+  width: 72%;
+  height: 72%;
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, .34);
   box-shadow: inset 0 0 10px rgba(255, 255, 255, .18);
@@ -213,6 +246,9 @@ body { overflow: hidden; }
 }
 .piece.selected .front {
   box-shadow: 0 0 0 3px var(--gold), 0 0 16px rgba(217, 164, 65, .8);
+}
+.piece.selected .back {
+  box-shadow: 0 0 0 3px var(--gold), 0 0 18px rgba(217, 164, 65, .9);
 }
 .piece.checked .front {
   animation: danger .8s infinite;

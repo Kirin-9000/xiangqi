@@ -47,9 +47,20 @@ section('一、开局布置');
   }
   ok(badSlot === null, '暗子均在己方半场', badSlot);
 
+  // 卧底身份 = 该棋位在常规象棋中的兵种
+  eq(st.board[9][0].disguise, 'R', '红方 (9,0) 暗子的卧底身份是车');
+  eq(st.board[9][8].disguise, 'R', '红方 (9,8) 暗子的卧底身份是车');
+  eq(st.board[9][1].disguise, 'N', '红方 (9,1) 暗子的卧底身份是马');
+  eq(st.board[9][2].disguise, 'B', '红方 (9,2) 暗子的卧底身份是相');
+  eq(st.board[9][3].disguise, 'A', '红方 (9,3) 暗子的卧底身份是仕');
+  eq(st.board[7][1].disguise, 'C', '红方 (7,1) 暗子的卧底身份是炮');
+  eq(st.board[6][4].disguise, 'P', '红方 (6,4) 暗子的卧底身份是兵');
+  eq(st.board[0][0].disguise, 'R', '黑方 (0,0) 暗子的卧底身份是车');
+  eq(st.board[3][4].disguise, 'P', '黑方 (3,4) 暗子的卧底身份是卒');
+
   const acts = XQ.legalActions(st);
   eq(acts.flips.length, 15, '开局可翻 15 枚暗子');
-  eq(acts.moves.length, 3, '开局帅有 3 个落点');
+  ok(acts.moves.length > 3, '开局除了帅，还有 15 枚暗子可以按卧底身份走');
 }
 
 /* ------------------------------------------------------------------ */
@@ -69,22 +80,101 @@ section('二、翻子');
 }
 
 /* ------------------------------------------------------------------ */
-section('三、暗子不能主动移动');
+section('三、卧底：暗子按背面兵种行走');
 {
+  // (9,0) 的暗子：卧底身份是「车」，真实身份是「兵」
   const st = fromRows([
+    '...k.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    'x...K....'
+  ], R, { '9,0': { d: 'R', t: 'P' } });
+  eq(XQ.effType(st.board[9][0]), 'R', '未翻开时按卧底身份（车）计算走法');
+  eq(mc(st.board, 9, 0),
+     '0,0 1,0 2,0 3,0 4,0 5,0 6,0 7,0 8,0 9,1 9,2 9,3',
+     '暗子像车一样直走（撞到自家帅才停）');
+  ok(XQ.legalActions(st).moves.some(m => m.from.r === 9 && m.from.c === 0 && m.to.r === 2 && m.to.c === 0),
+     '暗子可以主动移动');
+  ok(XQ.doMove(st, 9, 0, 4, 0).ok, '暗子可以走出己方半场');
+  ok(!st.board[4][0].revealed, '走完之后仍是暗子（不亮牌）');
+
+  // 同一枚子，翻开后按真实兵种走
+  const st2 = fromRows([
+    '...k.....', '.........', '.........', '.........', '.........',
+    '.........', '.........', '.........', '.........',
+    'x...K....'
+  ], R, { '9,0': { d: 'R', t: 'P' } });
+  ok(XQ.doFlip(st2, 9, 0).ok, '可以翻开己方界内的暗子');
+  eq(XQ.effType(st2.board[9][0]), 'P', '翻开后按真实兵种（兵）计算走法');
+  eq(mc(st2.board, 9, 0), '8,0', '翻开成兵后只能向前一步（走法与卧底身份完全不同）');
+
+  // 暗子吃子：被吃的亮牌，吃子的不亮
+  const st3 = fromRows([
+    '...k.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '....p....',   // 黑明卒
+    '.........',
+    '...x.....',   // 红暗子，卧底为车、真实为马
+    '....K....'
+  ], R, { '8,3': { d: 'R', t: 'N' } });
+  const res3 = XQ.doMove(st3, 8, 3, 6, 3);
+  ok(res3.ok, '暗子可以吃子', res3);
+  eq(st3.board[6][3].type, 'N', '暗子占据目标格');
+  eq(st3.board[6][3].revealed, false, '吃子的暗子走完后仍是暗子');
+  eq(st3.captured[B].length, 1, '被吃的子记入黑方损失');
+  ok(/^暗·/.test(st3.log[0].text), '棋谱标出这是暗子走的', st3.log[0].text);
+
+  // 暗子照样将军
+  const st4 = fromRows([
+    '...k.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '...x.K...',
+    '....K....'
+  ], R, { '8,3': { d: 'R', t: 'P' } });
+  ok(XQ.isKingInCheck(st4.board, B), '暗子（卧底为车）与将同线即将军');
+
+  // 记谱用卧底身份
+  const st5 = fromRows([
+    '...k.....', '.........', '.........', '.........', '.........',
+    '.........', '.........', '.........',
+    '...x.....',   // 红暗子，卧底为炮、真实为车
+    '...K.....'
+  ], R, { '8,3': { d: 'C', t: 'R' } });
+  eq(XQ.effType(st5.board[8][3]), 'C', '卧底身份为炮');
+  eq(XQ.notation(st5.board, R, 8, 3, 8, 0), '炮六平九', '暗子按卧底身份记谱');
+
+  // 走出己方界内后不能再翻
+  const st6 = fromRows([
     '....k....',
     '.........',
     '.........',
+    '..x......',   // 红方暗子已深入黑方半场
     '.........',
     '.........',
     '.........',
     '.........',
     '.........',
-    '.........',
-    '....K..x.'
-  ], R);
-  ok(!XQ.doMove(st, 9, 7, 8, 7).ok, '暗子不能被移动');
-  ok(XQ.doMove(st, 9, 4, 9, 3).ok, '帅可以移动');
+    '...K.....'
+  ], R, { '3,2': { d: 'R', t: 'N' } });
+  eq(XQ.legalActions(st6).flips.length, 0, '不在己方界内的暗子不能被翻开');
+  ok(!XQ.doFlip(st6, 3, 2).ok, '翻开界外己方暗子被拒绝');
+  ok(XQ.legalActions(st6).moves.length > 0, '但界外的暗子仍然可以走');
 }
 
 /* ------------------------------------------------------------------ */
@@ -466,10 +556,17 @@ section('十六、随机对局压力测试');
         ? XQ.doMove(st, pick.m.from.r, pick.m.from.c, pick.m.to.r, pick.m.to.c)
         : XQ.doFlip(st, pick.f.r, pick.f.c);
       if (!res.ok) { bad++; console.log('    合法动作被拒绝：' + res.msg); break; }
-      // 一致性校验：暗子不能被移动
+      // 一致性校验：棋盘上的子 + 被吃的子 = 32
+      let onBoard = 0;
+      for (let r = 0; r < 10; r++) for (let c = 0; c < 9; c++) if (st.board[r][c]) onBoard++;
+      if (onBoard + st.captured[R].length + st.captured[B].length !== 32) {
+        bad++; console.log('    子力总数不守恒');
+      }
+      // 一致性地校验：暗子的 effType 必须是它的卧底身份
       for (let r = 0; r < 10; r++) for (let c = 0; c < 9; c++) {
         const p = st.board[r][c];
-        if (p && !p.revealed && !XQ.ownHalf(p.color, r)) { bad++; console.log('    暗子跑出己方半场'); }
+        if (p && !p.revealed && XQ.effType(p) !== p.disguise) { bad++; console.log('    暗子的卧底身份错误'); }
+        if (p && p.revealed && XQ.effType(p) !== p.type) { bad++; console.log('    明子的兵种错误'); }
       }
     }
     const k = st.result ? (st.result.winner || '和棋') + ' · ' + st.result.reason : '未结束';

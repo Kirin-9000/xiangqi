@@ -21,6 +21,7 @@
   var ui = { flipped: false, autoFlip: false, hints: true, longRules: true };
   var toastTimer = null;
   var flashId = null;          // 刚翻开的棋子（只闪一次）
+  var hintedDark = false;      // 「暗子怎么翻开」的提示只说一次
 
   /* ------------------------------ 设置存取 ------------------------------ */
 
@@ -159,10 +160,16 @@
   function refresh() {
     legal = XQ.legalActions(state);
     if (ui.autoFlip) ui.flipped = (state.turn === XQ.BLACK);
+    // 局面变了，选中的子可能已经不在（被吃/已翻/轮到对方）
+    if (selected) {
+      var sp = state.board[selected.r][selected.c];
+      if (!sp || sp.color !== state.turn || state.status !== 'playing') selected = null;
+    }
     renderPieces();
     renderMarks();
     renderStatus();
     renderSidebar();
+    updateFlipBtn();
     saveGame();
   }
 
@@ -207,7 +214,7 @@
         if (!e) {
           e = document.createElement('div');
           e.className = 'piece spawn';
-          e.innerHTML = '<div class="card"><div class="face back"></div>' +
+          e.innerHTML = '<div class="card"><div class="face back"><span class="chb"></span></div>' +
                         '<div class="face front"><span class="ch"></span></div></div>';
           pieceEls.set(p.id, e);
           piecesLayer.appendChild(e);
@@ -220,7 +227,12 @@
         e.classList.toggle('r', p.color === XQ.RED);
         e.classList.toggle('b', p.color === XQ.BLACK);
         e.classList.toggle('revealed', p.revealed);
-        if (p.revealed) e.querySelector('.ch').textContent = XQ.CHAR[p.color][p.type];
+        if (p.revealed) {
+          e.querySelector('.ch').textContent = XQ.CHAR[p.color][p.type];
+        } else {
+          // 暗子背面显示卧底身份：未翻开前按这个兵种行走
+          e.querySelector('.chb').textContent = XQ.CHAR[p.color][p.disguise || p.type];
+        }
 
         e.classList.toggle('selected', !!(selected && selected.r === r && selected.c === c));
         e.classList.toggle('checked', !!(checkG && checkG.r === r && checkG.c === c));
@@ -351,6 +363,7 @@
     if (state.status !== 'playing') return;
     var p = state.board[r][c];
 
+    // 已选中棋子时，点落点即走子
     if (selected) {
       var mv = legal.moves.filter(function (m) {
         return m.from.r === selected.r && m.from.c === selected.c && m.to.r === r && m.to.c === c;
@@ -358,15 +371,17 @@
       if (mv) { act(XQ.doMove(state, selected.r, selected.c, r, c)); return; }
     }
 
-    if (p && p.color === state.turn && p.revealed) {
-      selected = (selected && selected.r === r && selected.c === c) ? null : { r: r, c: c };
+    // 点自己的棋子（明子、暗子都可以）→ 选中；再点一次取消选中
+    if (p && p.color === state.turn) {
+      var same = !!(selected && selected.r === r && selected.c === c);
+      selected = same ? null : { r: r, c: c };
       renderMarks();
       renderPieces();
-      return;
-    }
-
-    if (p && p.color === state.turn && !p.revealed) {
-      act(XQ.doFlip(state, r, c));
+      updateFlipBtn();
+      if (!same && !p.revealed && !hintedDark) {
+        hintedDark = true;
+        toast('暗子可按背面的兵种走子；要翻开它，点顶部的「翻开此暗子」');
+      }
       return;
     }
 
@@ -374,7 +389,21 @@
       selected = null;
       renderMarks();
       renderPieces();
+      updateFlipBtn();
     }
+  }
+
+  // 选中的是“可翻开的暗子”时，在顶栏显示翻子按钮
+  function updateFlipBtn() {
+    var show = false;
+    if (state.status === 'playing' && selected && legal) {
+      var p = state.board[selected.r][selected.c];
+      if (p && !p.revealed && p.color === state.turn) {
+        show = legal.flips.some(function (f) { return f.r === selected.r && f.c === selected.c; });
+      }
+    }
+    el('flipAction').hidden = !show;
+    el('chipDark').hidden = show;      // 手机上给按钮腾地方
   }
 
   function act(res) {
@@ -524,24 +553,32 @@
       '<li>其余 15 颗棋子背面朝上，随机打乱放在己方半场原来的棋位上，称为暗子</li>' +
       '<li>红方先行，轮流走棋</li></ul>' +
       '<h5>二、你的回合二选一</h5>' +
-      '<ul><li><b>翻子</b>：翻开自己半场任意一颗暗子</li>' +
-      '<li><b>移动</b>：移动己方已经翻开的明子</li>' +
+      '<ul><li><b>走子</b>：走己方任意一子——明子按真实兵种走，暗子按背面的「卧底身份」走</li>' +
+      '<li><b>翻子</b>：翻开一颗位于己方界内的己方暗子（选中它后点顶部的「翻开此暗子」）</li>' +
       '<li>两者不能同时进行</li></ul>' +
-      '<h5>三、核心特殊规则</h5>' +
+      '<h5>三、卧底（暗子怎么走）</h5>' +
+      '<ul><li><span class="hl">暗子未翻开时，按它所在棋位在常规象棋中的兵种行走</span>（背面已标出这个身份，双方都看得见）</li>' +
+      '<li>翻开后按它真实的兵种行走——可能和原来的走法完全不同（车直走、马走日、炮隔子打……）</li>' +
+      '<li>暗子能走、能吃子，走完之后依然是暗子（吃子的一方不亮牌，被吃的才亮牌）</li>' +
+      '<li>暗子照样能将军，用它走出的杀着一样成立</li>' +
+      '<li>暗子走出己方界内后，就不能再被翻开了（<span class="hl">本方只能翻自己界内的暗子</span>）</li></ul>' +
+      '<h5>四、核心特殊规则</h5>' +
       '<ul><li><span class="hl">士、象可以过河！</span>士可出九宫、象可过河，其余走法不变（象仍走田、塞象眼；士仍斜走一格）</li>' +
+      '<li>将帅不得出九宫随意行走（仍只能在九宫内直走一格），且两将不能直接对面</li>' +
+      '<li>兵卒不可后退（过河后仍只能向前或左右走）</li>' +
       '<li>用明子吃掉暗子时，暗子会先翻开再移除，吃之前不知其为何子</li>' +
-      '<li>暗子不能主动移动，只有翻开之后才能走</li>' +
-      '<li>将帅不能直接对面</li>' +
       '<li>炮可以拿暗子充当炮架</li>' +
-      '<li>可以吃自家的暗子</li></ul>' +
-      '<h5>四、胜负</h5>' +
+      '<li><span class="hl">可以吃自家的暗子（自残）</span>：双方暗子未翻开时都可被自家棋子吃掉</li>' +
+      '<li>被将军时不能翻子，必须先应将（翻子无法解将）</li></ul>' +
+      '<h5>五、胜负</h5>' +
       '<ul><li>将死对方将帅 / 吃掉对方将帅 / 对方认输</li>' +
       '<li>和棋：连续 60 回合（120 步）无吃子；局面重复 5 次；双方均无进攻子力</li>' +
       '<li>长将：一子连续将军最多 6 回合，超出判负</li>' +
       '<li>长捉：兵/卒、帅、士、象允许长捉；其他棋子连续捉同一子最多 6 回合，超出判负</li></ul>' +
       '<h5>操作说明</h5>' +
-      '<ul><li>点自己的明子 → 显示可落点 → 点落点走子</li>' +
-      '<li>直接点自己半场的暗子即可翻开</li>' +
+      '<ul><li>点自己的棋子（明子或暗子）→ 显示可走的位置 → 点落点走子</li>' +
+      '<li>选中己方界内的暗子后，顶部会出现「翻开此暗子」按钮，点它即可翻子</li>' +
+      '<li>再点一次已选中的棋子可以取消选中</li>' +
       '<li>手机竖屏用底部按钮，桌面端在右侧面板操作</li></ul>',
       [{ label: '知道了', cls: 'primary' }]);
   }
@@ -565,6 +602,13 @@
   function bindEvents() {
     boardEl.addEventListener('click', boardTap);
     boardEl.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+    // 翻子按钮：只对“选中的、位于己方界内的暗子”生效
+    el('flipAction').addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!selected || state.status !== 'playing') return;
+      act(XQ.doFlip(state, selected.r, selected.c));
+    });
 
     document.addEventListener('click', function (e) {
       var btn = e.target.closest ? e.target.closest('[data-act]') : null;
